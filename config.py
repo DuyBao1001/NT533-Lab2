@@ -1,0 +1,5 @@
+IDENTITY_URL = "https://cloud-identity.uitiot.vn/v3"
+COMPUTE_URL = "https://cloud-compute.uitiot.vn/v2.1"
+NETWORK_URL = "https://cloud-network.uitiot.vn/v2.0"
+IMAGE_URL = "https://cloud-image.uitiot.vn/v2"
+LOADBALANCER_URL = "https://cloud-octavia.uitiot.vn/v2.0"
