@@ -3,7 +3,10 @@ import requests
 from config import IDENTITY_URL
 from api.auth import get_token
 from api.compute import get_flavors 
-from api.image import get_images    
+from api.image import get_images  
+from api.network import create_router
+from api.network import list_routers
+from api.network import delete_router  
 
 st.set_page_config(page_title="OpenStack Lab 2", layout="centered")
 st.title("Quản lý OpenStack API")
@@ -113,3 +116,6 @@ else:
                 } for img in st.session_state['images']
             ]
             st.dataframe(image_data, use_container_width=True)
+
+#---Câu 3: Liệt kê danh sách, tạo mới, xóa Router ---    
+   
