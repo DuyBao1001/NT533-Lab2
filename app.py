@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+import json
 import streamlit as st
 import requests
 from config import IDENTITY_URL
 from api.auth import get_token
+import api.logger as api_logger
 from api.compute import get_flavors, list_instances, create_instance, delete_instance, server_action, list_keypairs
 from api.image import get_images
 from api.network import (
@@ -49,6 +51,88 @@ else:
         st.session_state['token'] = None
         st.rerun()
 
+    # ================================================================
+    # SIDEBAR: HTTP REQUEST LOG
+    # ================================================================
+    with st.sidebar:
+        st.markdown("## Nhật ký HTTP Request")
+
+        col_clear, col_count = st.sidebar.columns([1, 1])
+        with col_clear:
+            if st.button("Xóa log", type="secondary"):
+                api_logger.clear_logs()
+                st.rerun()
+        with col_count:
+            st.caption(f"{len(api_logger.http_logs)} bản ghi")
+
+        # Màu sắc theo method
+        METHOD_COLOR = {
+            "GET":    "#2196F3",   # xanh dương
+            "POST":   "#4CAF50",   # xanh lá
+            "PUT":    "#FF9800",   # cam
+            "DELETE": "#F44336",   # đỏ
+            "PATCH":  "#9C27B0",   # tím
+        }
+
+        def status_color(code):
+            if code is None:
+                return "#9E9E9E"
+            if 200 <= code < 300:
+                return "#4CAF50"   # xanh lá
+            if 400 <= code < 500:
+                return "#FF9800"   # cam
+            if code >= 500:
+                return "#F44336"   # đỏ
+            return "#9E9E9E"
+
+        if not api_logger.http_logs:
+            st.info("Chưa có request nào được ghi lại.")
+        else:
+            for i, log in enumerate(api_logger.http_logs):
+                m_color = METHOD_COLOR.get(log["method"], "#607D8B")
+                s_color = status_color(log["response_status"])
+                status_text = str(log["response_status"]) if log["response_status"] else "ERR"
+                duration = f'{log["duration_ms"]}ms' if log["duration_ms"] is not None else "?"
+
+                # Dòng tiêu đề của mỗi request
+                label = (
+                    f":{log['method'].lower()}[**{log['method']}**] "
+                    f"`{status_text}` · {duration} · `{log['url'].split('/')[-1] or log['url'].split('/')[-2]}`"
+                )
+
+                with st.expander(f"{log['timestamp']}  {log['method']}  {status_text}  {duration}", expanded=(i == 0)):
+                    # Badge method
+                    st.markdown(
+                        f"<span style='background:{m_color};color:white;padding:2px 8px;"
+                        f"border-radius:4px;font-weight:bold;font-size:13px'>{log['method']}</span>"
+                        f"&nbsp;&nbsp;"
+                        f"<span style='background:{s_color};color:white;padding:2px 8px;"
+                        f"border-radius:4px;font-weight:bold;font-size:13px'>{status_text}</span>"
+                        f"&nbsp;&nbsp;<span style='color:#666;font-size:12px'>{duration}</span>",
+                        unsafe_allow_html=True
+                    )
+                    st.caption(log["url"])
+
+                    # Request body
+                    if log["request_body"]:
+                        st.markdown("**Request Body:**")
+                        st.code(
+                            json.dumps(log["request_body"], ensure_ascii=False, indent=2),
+                            language="json"
+                        )
+
+                    # Response body
+                    if log["response_body"]:
+                        st.markdown("**Response Body:**")
+                        st.code(log["response_body"], language="json")
+
+                    # Lỗi kết nối
+                    if log["error"]:
+                        st.error(f"Lỗi kết nối: {log['error']}")
+
+    # ================================================================
+    # NỘI DUNG CHÍNH
+    # ================================================================
     with st.expander("Kiểm tra Service Endpoints (Catalog)"):
         if st.button("Lấy Endpoints từ OpenStack"):
             res = requests.get(f"{IDENTITY_URL}/auth/catalog", headers={"X-Auth-Token": st.session_state['token']})
