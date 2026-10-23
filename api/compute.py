@@ -50,7 +50,7 @@ def get_instance(token, server_id):
 
 
 def create_instance(token, name, image_id, flavor_id, network_id,
-                    user_data=None, key_name=None, security_groups=None):
+                    user_data="", key_name=None, security_groups=None):
     """Khởi tạo máy ảo mới"""
     url = f"{COMPUTE_URL.rstrip('/')}/servers"
     server_data = {

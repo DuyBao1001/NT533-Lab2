@@ -161,3 +161,78 @@ def delete_subnet(token, subnet_id):
         return False, f"Lỗi xóa Subnet: HTTP {response.status_code} - {response.text}"
     except requests.RequestException as e:
         return False, f"Lỗi kết nối Network API: {e}"
+# ==================== Floating IP ====================
+def get_instance_ports(token, instance_id):
+    """Tìm các port mạng gắn với một VM"""
+    url = f"{NETWORK_URL.rstrip('/')}/ports"
+    try:
+        response = requests.get(
+            url,
+            headers = {"X-Auth-Token": token},
+            params = {"device_id": instance_id},
+            timeout = 5
+        )
+        if response.status_code == 200:
+            return response.json().get("ports", []), None
+
+        return None, (
+            f"HTTP {response.status_code}: {response.text}"
+        )
+
+    except requests.RequestException as e:
+        return None, str(e)
+
+def list_floating_ips(token):
+    """Liệt kê Floating IP trong phạm vi quyền truy cập."""
+    url = f"{NETWORK_URL.rstrip('/')}/floatingips"
+
+    try:
+        response = requests.get(
+            url,
+            headers={"X-Auth-Token": token},
+            timeout=5
+        )
+
+        if response.status_code == 200:
+            return response.json().get("floatingips", []), None
+
+        return None, (
+            f"HTTP {response.status_code}: {response.text}"
+        )
+
+    except requests.RequestException as e:
+        return None, str(e)
+
+def create_floating_ip(token, external_network_id, port_id):
+    """Cấp Floating IP và gắn trực tiếp vào port của VM."""
+    url = f"{NETWORK_URL.rstrip('/')}/floatingips"
+
+    payload = {
+        "floatingip": {
+            "floating_network_id": external_network_id,
+            "port_id": port_id
+        }
+    }
+
+    try:
+        response = requests.post(
+            url,
+            headers={
+                "X-Auth-Token": token,
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            json=payload,
+            timeout=5
+        )
+
+        if response.status_code in (200, 201):
+            return response.json().get("floatingip"), None
+
+        return None, (
+            f"HTTP {response.status_code}: {response.text}"
+        )
+
+    except requests.RequestException as e:
+        return None, str(e)
+
