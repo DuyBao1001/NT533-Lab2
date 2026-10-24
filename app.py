@@ -35,11 +35,9 @@ from api.load_balancer import (
 st.set_page_config(page_title="OpenStack Lab 2", layout="centered")
 st.title("Quản lý OpenStack API")
 
-# Khởi tạo session lưu trữ token
 if 'token' not in st.session_state:
     st.session_state['token'] = None
 
-# Nếu chưa có token thì hiển thị form đăng nhập
 if st.session_state['token'] is None:
     st.subheader("Đăng nhập hệ thống")
 
@@ -69,9 +67,6 @@ else:
         st.session_state['token'] = None
         st.rerun()
 
-    # ================================================================
-    # SIDEBAR: HTTP REQUEST LOG
-    # ================================================================
     with st.sidebar:
         st.markdown("## Nhật ký HTTP Request")
 
@@ -263,7 +258,7 @@ else:
             st.markdown("##### Tạo Network mới")
             with st.form("create_net_form"):
                 new_net_name = st.text_input("Tên Network", placeholder="Ví dụ: nhom12_net")
-                submit_create_net = st.form_submit_button("Tạo Network", type="primary")
+                submit_create_net = st.form_submit_button("Tạo Network", type="secondary")
                 if submit_create_net:
                     if not new_net_name:
                         st.warning("Vui lòng nhập tên Network.")
@@ -336,7 +331,7 @@ else:
                 new_sub_name = st.text_input("Tên Subnet", placeholder="Ví dụ: nhom12_subnet")
                 new_cidr = st.text_input("Dải mạng (CIDR)", placeholder="Ví dụ: 192.168.12.0/24")
                 new_gateway = st.text_input("Gateway IP (Không bắt buộc)", placeholder="Ví dụ: 192.168.12.1")
-                submit_create_sub = st.form_submit_button("Tạo Subnet", type="primary")
+                submit_create_sub = st.form_submit_button("Tạo Subnet", type="secondary")
 
                 if submit_create_sub:
                     if not new_sub_name or not new_cidr or not parent_net_id:
@@ -433,7 +428,7 @@ else:
                     ext_net_id_input = st.text_input("External Network ID (Không bắt buộc)", placeholder="ID của Public_Net")
                     ext_net_id = ext_net_id_input if ext_net_id_input.strip() else None
 
-                submit_create_router = st.form_submit_button("Tạo Router", type="primary")
+                submit_create_router = st.form_submit_button("Tạo Router", type="secondary")
                 if submit_create_router:
                     if not new_router_name:
                         st.warning("Vui lòng nhập tên Router.")
@@ -559,7 +554,7 @@ else:
 
             col_start, col_stop, col_reboot, col_del = st.columns(4)
             with col_start:
-                if st.button("Bật", use_container_width=True, type="primary"):
+                if st.button("Bật", use_container_width=True, type="secondary"):
                     ok, err = server_action(st.session_state['token'], selected_inst_id, "start")
                     if ok:
                         st.success("Đã gửi lệnh Bật!")
@@ -584,7 +579,7 @@ else:
                     else:
                         st.error(err)
             with col_del:
-                if st.button("Xóa", use_container_width=True):
+                if st.button("Xóa", use_container_width=True, type="primary"):
                     ok, err = delete_instance(st.session_state['token'], selected_inst_id)
                     if ok:
                         st.success("Đã xóa Instance!")
@@ -681,7 +676,7 @@ systemctl enable nginx
 systemctl restart nginx"""
                 user_data_script = st.text_area("Bash Script", value=default_script, height=150)
 
-            submit_create_inst = st.form_submit_button("Khởi tạo Instance", type="primary")
+            submit_create_inst = st.form_submit_button("Khởi tạo Instance", type="secondary")
 
             if submit_create_inst:
                 if not inst_name or not image_id_input or not flavor_id_input or not network_id_input:
@@ -797,25 +792,31 @@ systemctl restart nginx"""
         )
 
 
-  # --- LOADBALANCER ---
-
+  # ================================================================
+    # PHẦN 6: LOAD BALANCER
+    # ================================================================
     st.divider()
     st.subheader("6. Cấu hình Load Balancer")
 
     token = st.session_state["token"]
 
-    # Nạp danh sách Load Balancer để chọn tài nguyên hiện có
-    if st.button("Làm mới danh sách Load Balancer", key="lb_refresh"):
+    # 1. TỰ ĐỘNG TẢI DANH SÁCH LOAD BALANCER KHI TRANG LOAD
+    col_btn_lb, _ = st.columns([1, 4])
+    with col_btn_lb:
+        if st.button("Làm mới danh sách Load Balancer", key="lb_refresh", type="secondary"):
+            st.session_state["lb_items"] = None
+
+    if "lb_items" not in st.session_state or st.session_state["lb_items"] is None:
         lbs, err = list_load_balancers(token)
         if lbs is not None:
             st.session_state["lb_items"] = lbs
         else:
             st.error(err)
 
-    lb_items = st.session_state.get("lb_items", [])
+    lb_items = st.session_state.get("lb_items") or []
 
     if not lb_items:
-        st.info("Nhấn 'Làm mới danh sách Load Balancer' để tải dữ liệu.")
+        st.info("Chưa có Load Balancer nào hoặc không tìm thấy dữ liệu.")
     else:
         lb_options = {
             f"{lb.get('name')} | {lb.get('provisioning_status')} | {lb.get('id')}":
@@ -845,6 +846,9 @@ systemctl restart nginx"""
             else:
                 st.error(err)
 
+        # ------------------------------------------------------------
+        # 6.1. LISTENER HTTP
+        # ------------------------------------------------------------
         st.markdown("#### 6.1. Listener HTTP")
 
         listener_name = st.text_input(
@@ -869,19 +873,25 @@ systemctl restart nginx"""
                 if listener:
                     st.success("Đã gửi yêu cầu tạo Listener.")
                     st.json(listener)
+                    st.session_state["lb_listener_items"] = None  # Reset để tự động nạp lại ở bước sau
                 else:
                     st.error(err)
 
+        # ------------------------------------------------------------
+        # 6.2. POOL ROUND_ROBIN
+        # ------------------------------------------------------------
         st.markdown("#### 6.2. Pool ROUND_ROBIN")
 
-        if st.button("Tải danh sách Listener", key="lb_load_listeners"):
+        # 2. TỰ ĐỘNG TẢI DANH SÁCH LISTENER KHI TRANG LOAD
+        if "lb_listener_items" not in st.session_state or st.session_state["lb_listener_items"] is None:
             items, err = list_listeners(token)
             if items is not None:
                 st.session_state["lb_listener_items"] = items
             else:
-                st.error(err)
+                st.session_state["lb_listener_items"] = []
 
-        listener_items = st.session_state.get("lb_listener_items", [])
+        listener_items = st.session_state.get("lb_listener_items") or []
+
         # Chỉ cho chọn Listener thuộc Load Balancer đang chọn
         listener_items = [
             item for item in listener_items
@@ -919,29 +929,29 @@ systemctl restart nginx"""
                 if pool:
                     st.success("Đã gửi yêu cầu tạo Pool.")
                     st.json(pool)
+                    st.session_state["lb_pool_items"] = None  # Reset để tự động nạp lại danh sách Pool
                 else:
                     st.error(err)
         else:
-            st.info(
-                "Nhấn 'Tải danh sách Listener'. Nếu chưa có Listener, "
-                "hãy tạo Listener trước."
-            )
+            st.info("Chưa có Listener nào cho Load Balancer này. Hãy tạo Listener trước.")
 
+        # ------------------------------------------------------------
+        # 6.3. THÊM BACKEND VM
+        # ------------------------------------------------------------
         st.markdown("#### 6.3. Thêm backend VM")
 
-        if st.button("Tải danh sách Pool", key="lb_load_pools"):
+        # 3. TỰ ĐỘNG TẢI DANH SÁCH POOL KHI TRANG LOAD
+        if "lb_pool_items" not in st.session_state or st.session_state["lb_pool_items"] is None:
             items, err = list_pools(token)
             if items is not None:
                 st.session_state["lb_pool_items"] = items
             else:
-                st.error(err)
+                st.session_state["lb_pool_items"] = []
 
-        pool_items = st.session_state.get("lb_pool_items", [])
+        pool_items = st.session_state.get("lb_pool_items") or []
 
         # Chỉ hiển thị Pool gắn với Listener của Load Balancer đang chọn
-        current_listener_ids = {
-            x["id"] for x in listener_items
-        }
+        current_listener_ids = {x["id"] for x in listener_items}
         pool_items = [
             p for p in pool_items
             if any(
@@ -1024,11 +1034,11 @@ systemctl restart nginx"""
                 else:
                     st.error(err)
         else:
-            st.info(
-                "Nhấn 'Tải danh sách Pool'. Nếu chưa có Pool, "
-                "hãy tạo Pool trước."
-            )
+            st.info("Chưa có Pool nào cho Load Balancer này. Hãy tạo Pool trước.")
 
+        # ------------------------------------------------------------
+        # 6.4. HEALTH MONITOR HTTP
+        # ------------------------------------------------------------
         st.markdown("#### 6.4. Health Monitor HTTP")
 
         if pool_items:
@@ -1066,6 +1076,9 @@ systemctl restart nginx"""
                 else:
                     st.error(err)
         
+        # ------------------------------------------------------------
+        # 6.5. GẮN FLOATING IP VÀO VIP
+        # ------------------------------------------------------------
         st.markdown("#### 6.5. Gắn Floating IP vào VIP")
 
         external_network_id = st.text_input(
