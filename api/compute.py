@@ -50,15 +50,26 @@ def get_instance(token, server_id):
 
 
 def create_instance(token, name, image_id, flavor_id, network_id,
-                    user_data=None, key_name=None, security_groups=None):
-    """Khởi tạo máy ảo mới"""
+                    user_data=None, key_name=None, security_groups=None, volume_size=10):
+    """Khởi tạo máy ảo mới (Hỗ trợ Volume-backed)"""
     url = f"{COMPUTE_URL.rstrip('/')}/servers"
+    
     server_data = {
         "name": name,
-        "imageRef": image_id,
         "flavorRef": flavor_id,
-        "networks": [{"uuid": network_id}]
+        "networks": [{"uuid": network_id}],
+        "block_device_mapping_v2": [
+            {
+                "uuid": image_id,
+                "source_type": "image",
+                "destination_type": "volume",
+                "boot_index": 0,
+                "volume_size": volume_size,
+                "delete_on_termination": True
+            }
+        ]
     }
+    
     if user_data and user_data.strip():
         server_data["user_data"] = base64.b64encode(user_data.strip().encode("utf-8")).decode("utf-8")
     if key_name and key_name.strip():
