@@ -94,7 +94,7 @@ def create_listener(token, lb_id, name="http-listener"):
         "listener": {
             "name": name,
             "loadbalancer_id": lb_id,
-            "protocol": "HTTP",
+            "protocol": "TCP",
             "protocol_port": 80,
         }
     }
@@ -128,11 +128,11 @@ def list_pools(token):
 
 def create_pool(token, listener_id, name="web-pool"):
     payload = {
-        "pool": {
-            "name": name,
-            "listener_id": listener_id,
-            "protocol": "HTTP",
-            "lb_algorithm": "ROUND_ROBIN",
+    "pool": {
+        "name": name,
+        "listener_id": listener_id,
+        "protocol": "TCP",
+        "lb_algorithm": "SOURCE_IP_PORT",
         }
     }
     try:
@@ -203,15 +203,12 @@ def list_health_monitors(token):
 def create_health_monitor(token, pool_id):
     payload = {
         "healthmonitor": {
-            "name": "web-health-monitor",
+            "name": "tcp-health-monitor",
             "pool_id": pool_id,
-            "type": "HTTP",
+            "type": "TCP",
             "delay": 5,
             "timeout": 2,
-            "max_retries": 3,
-            "http_method": "GET",
-            "url_path": "/",
-            "expected_codes": "200",
+            "max_retries": 3
         }
     }
     try:
