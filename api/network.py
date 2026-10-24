@@ -83,6 +83,18 @@ def remove_router_interface(token, router_id, subnet_id):
 
 # ==================== NETWORK APIS ====================
 
+def get_external_networks(token):
+    """Lấy danh sách các External Network (router:external=True) để dùng làm Gateway"""
+    url = f"{NETWORK_URL.rstrip('/')}/networks?router:external=True"
+    try:
+        response = logged_request("GET", url, headers=_get_headers(token), timeout=10)
+        if response.status_code == 200:
+            return response.json().get("networks", []), None
+        return None, f"Lỗi lấy External Networks: HTTP {response.status_code} - {response.text}"
+    except requests.RequestException as e:
+        return None, f"Lỗi kết nối Network API: {e}"
+
+
 def get_networks(token):
     """Liệt kê danh sách Networks"""
     url = f"{NETWORK_URL.rstrip('/')}/networks"
