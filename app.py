@@ -11,8 +11,26 @@ from api.network import (
     get_networks, create_network, delete_network,
     get_subnets, create_subnet, delete_subnet,
     list_routers, create_router, delete_router,
-    add_router_interface, remove_router_interface
+    add_router_interface, remove_router_interface,
+    get_instance_ports,
+    list_floating_ips,
+    create_floating_ip
 )
+
+from api.load_balancer import (
+    list_load_balancers,
+    create_load_balancer,
+    get_load_balancer,
+    list_listeners,
+    create_listener,
+    list_pools,
+    create_pool,
+    list_members,
+    add_pool_member,
+    list_health_monitors,
+    create_health_monitor,
+)
+
 
 st.set_page_config(page_title="OpenStack Lab 2", layout="centered")
 st.title("Quản lý OpenStack API")
@@ -621,9 +639,45 @@ else:
 
             with st.expander("User Data Script (Tùy chọn — chạy khi máy ảo khởi động)"):
                 default_script = """#!/bin/bash
-apt-get update -y
-apt-get install -y nginx
-echo "<h1>Hello from NT533.R12.G12 - OpenStack Lab 2</h1>" > /var/www/html/index.html
+set -eux
+exec > /var/log/nt533-user-data.log 2>&1
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y nginx curl
+VM_IP=$(curl -fsS --max-time 5 \
+  http://169.254.169.254/openstack/latest/meta_data.json \
+  | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(",".join(
+    a["addr"]
+    for values in d.get("meta", {}).get("network", {}).values()
+    for a in values
+    if a.get("version") == 4
+))
+' 2>/dev/null || true)
+if [ -z "$VM_IP" ]; then
+    VM_IP=$(hostname -I | awk '{print $1}')
+fi
+
+cat > /var/www/html/index.html <<EOF
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NT533 OpenStack Lab 2</title>
+</head>
+<body>
+  <h1>NT533 - OpenStack Lab 2</h1>
+  <h2>Nhóm: NT533.R12.G12</h2>
+  <p>Máy ảo đã được khởi tạo thành công.</p>
+  <p>Địa chỉ IP nội bộ: ${VM_IP}</p>
+</body>
+</html>
+EOF
+
+systemctl enable nginx
 systemctl restart nginx"""
                 user_data_script = st.text_area("Bash Script", value=default_script, height=150)
 
@@ -649,3 +703,455 @@ systemctl restart nginx"""
                         st.session_state['instances'] = None
                     else:
                         st.error(err)
+
+
+    # --- GAN FLOATING IP ---
+    st.divider()
+    st.subheader("5. Gắn Floating IP")
+
+    current_instances = st.session_state.get("instances") or []
+
+    if current_instances:
+        vm_options = {
+            f"{vm.get('name', 'VM')} [{vm.get('status', '')}]": vm["id"]
+            for vm in current_instances
+        }
+
+        selected_vm_label = st.selectbox(
+            "Chọn máy ảo cần gắn Floating IP",
+            list(vm_options.keys()),
+            key="floating_vm"
+        )
+
+        external_network_id = st.text_input(
+            "External Network ID",
+            placeholder="Nhập ID của mạng ngoài"
+        )
+
+        if st.button("Lấy danh sách Floating IP", key="load_fips"):
+            fips, err = list_floating_ips(st.session_state["token"])
+
+            if fips is not None:
+                st.session_state["floating_ips"] = fips
+                st.dataframe([
+                    {
+                        "Floating IP": fip.get("floating_ip_address"),
+                        "Port ID": fip.get("port_id"),
+                        "Trạng thái": fip.get("status")
+                    }
+                    for fip in fips
+                ], use_container_width=True)
+            else:
+                st.error(err)
+
+        if st.button("Gắn Floating IP mới", key="attach_fip"):
+            if not external_network_id.strip():
+                st.warning("Vui lòng nhập External Network ID.")
+            else:
+                vm_id = vm_options[selected_vm_label]
+
+                ports, err = get_instance_ports(
+                    st.session_state["token"], vm_id
+                )
+
+                if ports is None:
+                    st.error(err)
+                elif not ports:
+                    st.error(
+                        "VM chưa có port mạng. Hãy kiểm tra Network "
+                        "và trạng thái Instance."
+                    )
+                else:
+                    # Chon port co dia chi IP noi bo
+                    port = next(
+                        (
+                            p for p in ports
+                            if p.get("fixed_ips")
+                        ),
+                        None
+                    )
+
+                    if not port:
+                        st.error("Không tìm thấy port có Fixed IP.")
+                    else:
+                        fip, err = create_floating_ip(
+                            st.session_state["token"],
+                            external_network_id.strip(),
+                            port["id"]
+                        )
+
+                        if fip:
+                            st.success("Đã gắn Floating IP!")
+                            st.code(
+                                f"http://{fip.get('floating_ip_address')}"
+                            )
+                            st.caption(
+                                "Nếu chưa truy cập được, kiểm tra "
+                                "Security Group, routing và trạng thái Nginx."
+                            )
+                        else:
+                            st.error(err)
+    else:
+        st.info(
+            "Hãy tải danh sách Instance trước khi gắn Floating IP."
+        )
+
+
+  # --- LOADBALANCER ---
+
+    st.divider()
+    st.subheader("6. Cấu hình Load Balancer")
+
+    token = st.session_state["token"]
+
+    # Nạp danh sách Load Balancer để chọn tài nguyên hiện có
+    if st.button("Làm mới danh sách Load Balancer", key="lb_refresh"):
+        lbs, err = list_load_balancers(token)
+        if lbs is not None:
+            st.session_state["lb_items"] = lbs
+        else:
+            st.error(err)
+
+    lb_items = st.session_state.get("lb_items", [])
+
+    if not lb_items:
+        st.info("Nhấn 'Làm mới danh sách Load Balancer' để tải dữ liệu.")
+    else:
+        lb_options = {
+            f"{lb.get('name')} | {lb.get('provisioning_status')} | {lb.get('id')}":
+            lb["id"]
+            for lb in lb_items
+        }
+
+        selected_lb_label = st.selectbox(
+            "Chọn Load Balancer",
+            list(lb_options.keys()),
+            key="lb_selected",
+        )
+        selected_lb_id = lb_options[selected_lb_label]
+
+        if st.button("Kiểm tra trạng thái Load Balancer", key="lb_check"):
+            lb, err = get_load_balancer(token, selected_lb_id)
+            if lb:
+                st.json({
+                    "name": lb.get("name"),
+                    "id": lb.get("id"),
+                    "vip_address": lb.get("vip_address"),
+                    "vip_port_id": lb.get("vip_port_id"),
+                    "provisioning_status": lb.get("provisioning_status"),
+                    "operating_status": lb.get("operating_status"),
+                })
+                st.session_state["selected_lb_detail"] = lb
+            else:
+                st.error(err)
+
+        st.markdown("#### 6.1. Listener HTTP")
+
+        listener_name = st.text_input(
+            "Tên Listener",
+            value="http-listener",
+            key="lb_listener_name",
+        )
+
+        if st.button("Tạo Listener HTTP port 80", key="lb_create_listener"):
+            lb, err = get_load_balancer(token, selected_lb_id)
+
+            if not lb:
+                st.error(err)
+            elif lb.get("provisioning_status") != "ACTIVE":
+                st.warning(
+                    "Load Balancer chưa ACTIVE. Hãy đợi rồi thử lại."
+                )
+            else:
+                listener, err = create_listener(
+                    token, selected_lb_id, listener_name.strip()
+                )
+                if listener:
+                    st.success("Đã gửi yêu cầu tạo Listener.")
+                    st.json(listener)
+                else:
+                    st.error(err)
+
+        st.markdown("#### 6.2. Pool ROUND_ROBIN")
+
+        if st.button("Tải danh sách Listener", key="lb_load_listeners"):
+            items, err = list_listeners(token)
+            if items is not None:
+                st.session_state["lb_listener_items"] = items
+            else:
+                st.error(err)
+
+        listener_items = st.session_state.get("lb_listener_items", [])
+        # Chỉ cho chọn Listener thuộc Load Balancer đang chọn
+        listener_items = [
+            item for item in listener_items
+            if selected_lb_id in [
+                x.get("id") if isinstance(x, dict) else x
+                for x in item.get("loadbalancers", [])
+            ]
+            or item.get("loadbalancer_id") == selected_lb_id
+        ]
+
+        if listener_items:
+            listener_options = {
+                f"{x.get('name')} | {x.get('protocol')}:{x.get('protocol_port')} | {x.get('id')}":
+                x["id"]
+                for x in listener_items
+            }
+
+            selected_listener_label = st.selectbox(
+                "Chọn Listener",
+                list(listener_options.keys()),
+                key="lb_listener_selected",
+            )
+            selected_listener_id = listener_options[selected_listener_label]
+
+            pool_name = st.text_input(
+                "Tên Pool",
+                value="web-pool",
+                key="lb_pool_name",
+            )
+
+            if st.button("Tạo Pool ROUND_ROBIN", key="lb_create_pool"):
+                pool, err = create_pool(
+                    token, selected_listener_id, pool_name.strip()
+                )
+                if pool:
+                    st.success("Đã gửi yêu cầu tạo Pool.")
+                    st.json(pool)
+                else:
+                    st.error(err)
+        else:
+            st.info(
+                "Nhấn 'Tải danh sách Listener'. Nếu chưa có Listener, "
+                "hãy tạo Listener trước."
+            )
+
+        st.markdown("#### 6.3. Thêm backend VM")
+
+        if st.button("Tải danh sách Pool", key="lb_load_pools"):
+            items, err = list_pools(token)
+            if items is not None:
+                st.session_state["lb_pool_items"] = items
+            else:
+                st.error(err)
+
+        pool_items = st.session_state.get("lb_pool_items", [])
+
+        # Chỉ hiển thị Pool gắn với Listener của Load Balancer đang chọn
+        current_listener_ids = {
+            x["id"] for x in listener_items
+        }
+        pool_items = [
+            p for p in pool_items
+            if any(
+                x.get("id") in current_listener_ids
+                for x in p.get("listeners", [])
+            )
+            or any(
+                x.get("id") == selected_lb_id
+                for x in p.get("loadbalancers", [])
+            )
+        ]
+
+        if pool_items:
+            pool_options = {
+                f"{p.get('name')} | {p.get('protocol')} | {p.get('id')}":
+                p["id"]
+                for p in pool_items
+            }
+
+            selected_pool_label = st.selectbox(
+                "Chọn Pool",
+                list(pool_options.keys()),
+                key="lb_pool_selected",
+            )
+            selected_pool_id = pool_options[selected_pool_label]
+
+            with st.form("lb_add_member_form"):
+                member_ip = st.text_input(
+                    "Fixed IP của VM backend",
+                    placeholder="Ví dụ: 192.168.12.117",
+                )
+                member_subnet = st.text_input(
+                    "Subnet ID của backend",
+                    placeholder="UUID subnet chứa VM",
+                )
+                member_port = st.number_input(
+                    "Port dịch vụ web",
+                    min_value=1,
+                    max_value=65535,
+                    value=80,
+                )
+
+                add_member_submit = st.form_submit_button(
+                    "Thêm backend vào Pool"
+                )
+
+            if add_member_submit:
+                if not member_ip.strip() or not member_subnet.strip():
+                    st.warning("Nhập Fixed IP và Subnet ID.")
+                else:
+                    member, err = add_pool_member(
+                        token,
+                        selected_pool_id,
+                        member_ip.strip(),
+                        member_subnet.strip(),
+                        int(member_port),
+                    )
+                    if member:
+                        st.success("Đã gửi yêu cầu thêm backend.")
+                        st.json(member)
+                    else:
+                        st.error(err)
+
+            if st.button("Xem Members của Pool", key="lb_show_members"):
+                members, err = list_members(token, selected_pool_id)
+                if members is not None:
+                    if members:
+                        st.dataframe([
+                            {
+                                "Tên": m.get("name"),
+                                "IP": m.get("address"),
+                                "Port": m.get("protocol_port"),
+                                "Provisioning": m.get("provisioning_status"),
+                                "Operating": m.get("operating_status"),
+                            }
+                            for m in members
+                        ], use_container_width=True)
+                    else:
+                        st.info("Pool chưa có backend.")
+                else:
+                    st.error(err)
+        else:
+            st.info(
+                "Nhấn 'Tải danh sách Pool'. Nếu chưa có Pool, "
+                "hãy tạo Pool trước."
+            )
+
+        st.markdown("#### 6.4. Health Monitor HTTP")
+
+        if pool_items:
+            hm_pool_options = {
+                f"{p.get('name')} | {p.get('id')}": p["id"]
+                for p in pool_items
+            }
+            hm_pool_label = st.selectbox(
+                "Pool cần giám sát",
+                list(hm_pool_options.keys()),
+                key="lb_hm_pool",
+            )
+            hm_pool_id = hm_pool_options[hm_pool_label]
+
+            if st.button("Tạo Health Monitor HTTP", key="lb_create_hm"):
+                hm, err = create_health_monitor(token, hm_pool_id)
+                if hm:
+                    st.success("Đã gửi yêu cầu tạo Health Monitor.")
+                    st.json(hm)
+                else:
+                    st.error(err)
+
+            if st.button("Xem Health Monitors", key="lb_list_hm"):
+                monitors, err = list_health_monitors(token)
+                if monitors is not None:
+                    st.dataframe([
+                        {
+                            "ID": h.get("id"),
+                            "Pool ID": h.get("pool_id"),
+                            "Loại": h.get("type"),
+                            "Trạng thái": h.get("provisioning_status"),
+                        }
+                        for h in monitors
+                    ], use_container_width=True)
+                else:
+                    st.error(err)
+        
+        st.markdown("#### 6.5. Gắn Floating IP vào VIP")
+
+        external_network_id = st.text_input(
+            "External Network ID",
+            key="lb_external_network_id",
+            placeholder="UUID mạng ngoài được cấp phép",
+        )
+
+        if st.button("Kiểm tra Floating IP của VIP", key="lb_check_vip_fip"):
+            lb, err = get_load_balancer(token, selected_lb_id)
+
+            if not lb:
+                st.error(err)
+            else:
+                vip_port_id = lb.get("vip_port_id")
+                st.write("VIP Address:", lb.get("vip_address"))
+                st.write("VIP Port ID:", vip_port_id)
+
+                if not vip_port_id:
+                    st.error("Load Balancer chưa có VIP Port.")
+                else:
+                    fips, err = list_floating_ips(token)
+
+                    if fips is None:
+                        st.error(err)
+                    else:
+                        attached = [
+                            f for f in fips
+                            if f.get("port_id") == vip_port_id
+                        ]
+
+                        if attached:
+                            for fip in attached:
+                                st.success(
+                                    "Floating IP hiện có: "
+                                    + str(fip.get("floating_ip_address"))
+                                )
+                                st.code(
+                                    "http://" + str(fip.get("floating_ip_address"))
+                                )
+                        else:
+                            st.info("VIP chưa có Floating IP.")
+
+        if st.button("Gắn Floating IP cho VIP", key="lb_attach_vip_fip"):
+            if not external_network_id.strip():
+                st.warning("Nhập External Network ID trước.")
+            else:
+                lb, err = get_load_balancer(token, selected_lb_id)
+
+                if not lb:
+                    st.error(err)
+                elif lb.get("provisioning_status") != "ACTIVE":
+                    st.warning("Load Balancer chưa ACTIVE.")
+                else:
+                    vip_port_id = lb.get("vip_port_id")
+
+                    if not vip_port_id:
+                        st.error("Không tìm thấy VIP Port ID.")
+                    else:
+                        fips, err = list_floating_ips(token)
+
+                        if fips is None:
+                            st.error(err)
+                        else:
+                            attached = [
+                                f for f in fips
+                                if f.get("port_id") == vip_port_id
+                            ]
+
+                            if attached:
+                                st.info(
+                                    "VIP đã có Floating IP: "
+                                    + str(attached[0].get("floating_ip_address"))
+                                )
+                            else:
+                                fip, err = create_floating_ip(
+                                    token,
+                                    external_network_id.strip(),
+                                    vip_port_id,
+                                )
+
+                                if fip:
+                                    st.success("Đã gửi yêu cầu gắn Floating IP.")
+                                    st.code(
+                                        "http://"
+                                        + str(fip.get("floating_ip_address"))
+                                    )
+                                else:
+                                    st.error(err)
