@@ -35,11 +35,9 @@ from api.load_balancer import (
 st.set_page_config(page_title="OpenStack Lab 2", layout="centered")
 st.title("Quản lý OpenStack API")
 
-# Khởi tạo session lưu trữ token
 if 'token' not in st.session_state:
     st.session_state['token'] = None
 
-# Nếu chưa có token thì hiển thị form đăng nhập
 if st.session_state['token'] is None:
     st.subheader("Đăng nhập hệ thống")
 
@@ -69,9 +67,6 @@ else:
         st.session_state['token'] = None
         st.rerun()
 
-    # ================================================================
-    # SIDEBAR: HTTP REQUEST LOG
-    # ================================================================
     with st.sidebar:
         st.markdown("## Nhật ký HTTP Request")
 
@@ -263,7 +258,7 @@ else:
             st.markdown("##### Tạo Network mới")
             with st.form("create_net_form"):
                 new_net_name = st.text_input("Tên Network", placeholder="Ví dụ: nhom12_net")
-                submit_create_net = st.form_submit_button("Tạo Network", type="primary")
+                submit_create_net = st.form_submit_button("Tạo Network", type="secondary")
                 if submit_create_net:
                     if not new_net_name:
                         st.warning("Vui lòng nhập tên Network.")
@@ -336,7 +331,7 @@ else:
                 new_sub_name = st.text_input("Tên Subnet", placeholder="Ví dụ: nhom12_subnet")
                 new_cidr = st.text_input("Dải mạng (CIDR)", placeholder="Ví dụ: 192.168.12.0/24")
                 new_gateway = st.text_input("Gateway IP (Không bắt buộc)", placeholder="Ví dụ: 192.168.12.1")
-                submit_create_sub = st.form_submit_button("Tạo Subnet", type="primary")
+                submit_create_sub = st.form_submit_button("Tạo Subnet", type="secondary")
 
                 if submit_create_sub:
                     if not new_sub_name or not new_cidr or not parent_net_id:
@@ -433,7 +428,7 @@ else:
                     ext_net_id_input = st.text_input("External Network ID (Không bắt buộc)", placeholder="ID của Public_Net")
                     ext_net_id = ext_net_id_input if ext_net_id_input.strip() else None
 
-                submit_create_router = st.form_submit_button("Tạo Router", type="primary")
+                submit_create_router = st.form_submit_button("Tạo Router", type="secondary")
                 if submit_create_router:
                     if not new_router_name:
                         st.warning("Vui lòng nhập tên Router.")
@@ -559,7 +554,7 @@ else:
 
             col_start, col_stop, col_reboot, col_del = st.columns(4)
             with col_start:
-                if st.button("Bật", use_container_width=True, type="primary"):
+                if st.button("Bật", use_container_width=True, type="secondary"):
                     ok, err = server_action(st.session_state['token'], selected_inst_id, "start")
                     if ok:
                         st.success("Đã gửi lệnh Bật!")
@@ -584,7 +579,7 @@ else:
                     else:
                         st.error(err)
             with col_del:
-                if st.button("Xóa", use_container_width=True):
+                if st.button("Xóa", use_container_width=True, type="primary"):
                     ok, err = delete_instance(st.session_state['token'], selected_inst_id)
                     if ok:
                         st.success("Đã xóa Instance!")
@@ -681,7 +676,7 @@ systemctl enable nginx
 systemctl restart nginx"""
                 user_data_script = st.text_area("Bash Script", value=default_script, height=150)
 
-            submit_create_inst = st.form_submit_button("Khởi tạo Instance", type="primary")
+            submit_create_inst = st.form_submit_button("Khởi tạo Instance", type="secondary")
 
             if submit_create_inst:
                 if not inst_name or not image_id_input or not flavor_id_input or not network_id_input:
@@ -880,7 +875,7 @@ systemctl restart nginx"""
             else:
                 st.error(err or "Không tải được danh sách Load Balancer.")
 
-    lb_items = st.session_state.get("lb_items", [])
+    lb_items = st.session_state.get("lb_items") or []
 
     if not lb_items:
         st.info("Nhấn 'Làm mới danh sách Load Balancer' để tải dữ liệu.")
