@@ -27,5 +27,3 @@ def get_images(token):
         return None, f"Lỗi {response.status_code}: {response.text}"
     except Exception as e:
         return None, f"Lỗi kết nối: {str(e)}"
-
-        return None, f"Lỗi kết nối: {str(e)}"

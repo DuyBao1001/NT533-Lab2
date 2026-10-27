@@ -1,5 +1,6 @@
-
+# api/load_balancer.py
 import requests
+from api.logger import logged_request
 from config import LOADBALANCER_URL
 
 
@@ -11,215 +12,101 @@ def _headers(token):
     }
 
 
-def _url(path):
-    return f"{LOADBALANCER_URL.rstrip('/')}/lbaas/{path.lstrip('/')}"
-
-
-def list_load_balancers(token):
+def _call(method, path, token, body=None, key=None, timeout=30):
+    """Gọi Octavia API. Trả về (dữ liệu, lỗi); DELETE (key=None) trả về (True, None)."""
+    url = f"{LOADBALANCER_URL.rstrip('/')}/lbaas/{path.lstrip('/')}"
     try:
-        response = requests.get(
-            _url("loadbalancers"),
-            headers=_headers(token),
-            timeout=5,
-        )
-
-        if response.status_code == 200:
-            return response.json().get("loadbalancers", []), None
-
-        return None, (
-            f"HTTP {response.status_code}: {response.text}"
-        )
-
+        r = logged_request(method, url, headers=_headers(token), json_body=body, timeout=timeout)
     except requests.RequestException as e:
         return None, f"Lỗi kết nối Octavia API: {e}"
+
+    if r.status_code in (200, 201, 202, 204):
+        return (r.json().get(key) if key else True), None
+    return None, f"HTTP {r.status_code}: {r.text}"
+
+
+# ==================== LOAD BALANCER ====================
+
+def list_load_balancers(token):
+    return _call("GET", "loadbalancers", token, key="loadbalancers")
+
+
+def get_load_balancer(token, lb_id):
+    return _call("GET", f"loadbalancers/{lb_id}", token, key="loadbalancer")
 
 
 def create_load_balancer(token, name, subnet_id):
-    payload = {
-        "loadbalancer": {
-            "name": name,
-            "vip_subnet_id": subnet_id,
-            "description": "NT533 Web Load Balancing",
-        }
-    }
+    body = {"loadbalancer": {
+        "name": name,
+        "vip_subnet_id": subnet_id,
+        "description": "NT533 Web Load Balancing",
+    }}
+    return _call("POST", "loadbalancers", token, body, "loadbalancer", timeout=60)
 
-    try:
-        response = requests.post(
-            _url("loadbalancers"),
-            headers=_headers(token),
-            json=payload,
-            timeout=60,
-        )
 
-        if response.status_code in (200, 201, 202):
-            return response.json().get("loadbalancer"), None
-
-        return None, (
-            f"HTTP {response.status_code}: {response.text}"
-        )
-
-    except requests.RequestException as e:
-        return None, f"Lỗi kết nối Octavia API: {e}"
-
-def get_load_balancer(token, lb_id):
-    try:
-        r = requests.get(
-            _url(f"loadbalancers/{lb_id}"),
-            headers=_headers(token),
-            timeout=5,
-        )
-        if r.status_code == 200:
-            return r.json().get("loadbalancer"), None
-        return None, f"HTTP {r.status_code}: {r.text}"
-    except requests.RequestException as e:
-        return None, str(e)
-
+# ==================== LISTENER ====================
 
 def list_listeners(token):
-    try:
-        r = requests.get(
-            _url("listeners"),
-            headers=_headers(token),
-            timeout=30,
-        )
-        if r.status_code == 200:
-            return r.json().get("listeners", []), None
-        return None, f"HTTP {r.status_code}: {r.text}"
-    except requests.RequestException as e:
-        return None, str(e)
+    return _call("GET", "listeners", token, key="listeners")
 
 
 def create_listener(token, lb_id, name="http-listener"):
-    payload = {
-        "listener": {
-            "name": name,
-            "loadbalancer_id": lb_id,
-            "protocol": "TCP",
-            "protocol_port": 80,
-        }
-    }
-    try:
-        r = requests.post(
-            _url("listeners"),
-            headers=_headers(token),
-            json=payload,
-            timeout=60,
-        )
-        if r.status_code in (200, 201, 202):
-            return r.json().get("listener"), None
-        return None, f"HTTP {r.status_code}: {r.text}"
-    except requests.RequestException as e:
-        return None, str(e)
+    body = {"listener": {
+        "name": name,
+        "loadbalancer_id": lb_id,
+        "protocol": "TCP",
+        "protocol_port": 80,
+    }}
+    return _call("POST", "listeners", token, body, "listener", timeout=60)
 
+
+# ==================== POOL & MEMBER ====================
 
 def list_pools(token):
-    try:
-        r = requests.get(
-            _url("pools"),
-            headers=_headers(token),
-            timeout=30,
-        )
-        if r.status_code == 200:
-            return r.json().get("pools", []), None
-        return None, f"HTTP {r.status_code}: {r.text}"
-    except requests.RequestException as e:
-        return None, str(e)
+    return _call("GET", "pools", token, key="pools")
 
 
 def create_pool(token, listener_id, name="web-pool"):
-    payload = {
-    "pool": {
+    body = {"pool": {
         "name": name,
         "listener_id": listener_id,
         "protocol": "TCP",
         "lb_algorithm": "SOURCE_IP_PORT",
-        }
-    }
-    try:
-        r = requests.post(
-            _url("pools"),
-            headers=_headers(token),
-            json=payload,
-            timeout=60,
-        )
-        if r.status_code in (200, 201, 202):
-            return r.json().get("pool"), None
-        return None, f"HTTP {r.status_code}: {r.text}"
-    except requests.RequestException as e:
-        return None, str(e)
+    }}
+    return _call("POST", "pools", token, body, "pool", timeout=60)
 
 
 def list_members(token, pool_id):
-    try:
-        r = requests.get(
-            _url(f"pools/{pool_id}/members"),
-            headers=_headers(token),
-            timeout=30,
-        )
-        if r.status_code == 200:
-            return r.json().get("members", []), None
-        return None, f"HTTP {r.status_code}: {r.text}"
-    except requests.RequestException as e:
-        return None, str(e)
+    return _call("GET", f"pools/{pool_id}/members", token, key="members")
 
 
 def add_pool_member(token, pool_id, address, subnet_id, port=80):
-    payload = {
-        "member": {
-            "name": address,
-            "address": address,
-            "protocol_port": int(port),
-            "subnet_id": subnet_id,
-        }
-    }
-    try:
-        r = requests.post(
-            _url(f"pools/{pool_id}/members"),
-            headers=_headers(token),
-            json=payload,
-            timeout=60,
-        )
-        if r.status_code in (200, 201, 202):
-            return r.json().get("member"), None
-        return None, f"HTTP {r.status_code}: {r.text}"
-    except requests.RequestException as e:
-        return None, str(e)
+    body = {"member": {
+        "name": address,
+        "address": address,
+        "protocol_port": int(port),
+        "subnet_id": subnet_id,
+    }}
+    return _call("POST", f"pools/{pool_id}/members", token, body, "member", timeout=60)
 
+
+def delete_pool_member(token, pool_id, member_id):
+    return _call("DELETE", f"pools/{pool_id}/members/{member_id}", token, timeout=60)
+
+
+# ==================== HEALTH MONITOR ====================
 
 def list_health_monitors(token):
-    try:
-        r = requests.get(
-            _url("healthmonitors"),
-            headers=_headers(token),
-            timeout=30,
-        )
-        if r.status_code == 200:
-            return r.json().get("healthmonitors", []), None
-        return None, f"HTTP {r.status_code}: {r.text}"
-    except requests.RequestException as e:
-        return None, str(e)
+    return _call("GET", "healthmonitors", token, key="healthmonitors")
 
 
 def create_health_monitor(token, pool_id):
-    payload = {
-        "healthmonitor": {
-            "name": "tcp-health-monitor",
-            "pool_id": pool_id,
-            "type": "TCP",
-            "delay": 5,
-            "timeout": 2,
-            "max_retries": 3
-        }
-    }
-    try:
-        r = requests.post(
-            _url("healthmonitors"),
-            headers=_headers(token),
-            json=payload,
-            timeout=60,
-        )
-        if r.status_code in (200, 201, 202):
-            return r.json().get("healthmonitor"), None
-        return None, f"HTTP {r.status_code}: {r.text}"
-    except requests.RequestException as e:
-        return None, str(e)
+    body = {"healthmonitor": {
+        "name": "tcp-health-monitor",
+        "pool_id": pool_id,
+        "type": "TCP",
+        "delay": 5,
+        "timeout": 2,
+        "max_retries": 3,
+    }}
+    return _call("POST", "healthmonitors", token, body, "healthmonitor", timeout=60)
