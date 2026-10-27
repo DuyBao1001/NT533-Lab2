@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import requests
 import streamlit as st
 
@@ -54,7 +53,7 @@ def render_endpoints(token):
 
 
 def render_dashboard(token):
-    st.success("Đã kết nối thành công với hạ tầng OpenStack!")
+    st.success("Đã kết nối thành công với OpenStack!")
     st.write(f"**Token hiện tại:** `{token[:20]}...`")
     if st.button("Đăng xuất"):
         st.session_state.clear()
