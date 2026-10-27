@@ -185,10 +185,7 @@ def _render_pools(token, listeners, pools):
 
 def _vm_fixed_ips(token, server_id, subnet_names):
     """Fixed IP của một máy ảo: {nhãn: (ip, subnet_id)}."""
-    ports, err = get_instance_ports(token, server_id)
-    if ports is None:
-        st.error(err)
-        return {}
+    ports = load(f"vm_ports_{server_id}", get_instance_ports, token, server_id)
     return {
         f"{f['ip_address']} | {subnet_names.get(f.get('subnet_id'), f.get('subnet_id'))}": (f["ip_address"], f.get("subnet_id"))
         for p in ports for f in p.get("fixed_ips", []) if f.get("ip_address")
@@ -208,12 +205,14 @@ def _render_backends(token, pools):
     subnets = load("subnets", get_subnets, token)
     subnet_names = {s["id"]: s.get("name") or s["id"] for s in subnets}
 
+    vm_options = choices(instances, lambda s: s.get("name") or "(Không tên)")
+    vm_id = vm_options[st.selectbox("Backend VM", list(vm_options), key="backend_vm")] if vm_options else None
+    refresh_button("Làm mới Backend", members_key(pool_id), f"vm_ports_{vm_id}", key="refresh_backends")
+
     with st.expander("Thêm Backend"):
-        if not instances:
+        if not vm_id:
             st.warning("Chưa có Instance nào.")
         else:
-            vm_options = choices(instances, lambda s: s.get("name") or "(Không tên)")
-            vm_id = vm_options[st.selectbox("Backend VM", list(vm_options), key="backend_vm")]
             ip_options = _vm_fixed_ips(token, vm_id, subnet_names)
             if not ip_options:
                 st.warning("Máy ảo chưa có Fixed IP. Kiểm tra trạng thái Instance.")
@@ -231,7 +230,6 @@ def _render_backends(token, pools):
                     else:
                         st.error(err)
 
-    refresh_button("Làm mới Backend", members_key(pool_id))
     members = load(members_key(pool_id), list_members, token, pool_id)
     if not members:
         st.info("Pool hiện chưa có Backend.")
