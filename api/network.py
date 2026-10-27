@@ -146,12 +146,14 @@ def get_subnets(token):
         return None, f"Lỗi kết nối Network API: {e}"
 
 
-def create_subnet(token, network_id, name, cidr, gateway_ip=None):
+def create_subnet(token, network_id, name, cidr, gateway_ip=None, dns_nameservers=None):
     """Tạo mới Subnet gắn vào một Network"""
     url = f"{NETWORK_URL.rstrip('/')}/subnets"
     subnet_data = {"network_id": network_id, "ip_version": 4, "cidr": cidr, "name": name}
     if gateway_ip and gateway_ip.strip():
         subnet_data["gateway_ip"] = gateway_ip.strip()
+    if dns_nameservers:
+        subnet_data["dns_nameservers"] = dns_nameservers
 
     payload = {"subnet": subnet_data}
     try:

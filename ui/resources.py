@@ -126,12 +126,16 @@ def render_network_subnet(token):
                 name = st.text_input("Tên Subnet", placeholder="Ví dụ: nhom12_subnet")
                 cidr = st.text_input("Dải mạng (CIDR)", placeholder="Ví dụ: 192.168.12.0/24")
                 gateway = st.text_input("Gateway IP (Không bắt buộc)", placeholder="Ví dụ: 192.168.12.1")
+                dns = st.text_input("DNS Nameservers (cách nhau bằng dấu phẩy)", value="8.8.8.8")
                 submitted = st.form_submit_button("Tạo Subnet")
             if submitted:
                 if not name.strip() or not cidr.strip() or not parent_net_id:
                     st.warning("Vui lòng nhập đủ Tên Subnet, CIDR và Network.")
                 else:
-                    sub, err = create_subnet(token, parent_net_id, name.strip(), cidr.strip(), gateway)
+                    sub, err = create_subnet(
+                        token, parent_net_id, name.strip(), cidr.strip(), gateway,
+                        [d.strip() for d in dns.split(",") if d.strip()],
+                    )
                     if sub:
                         flash("success", f"Tạo thành công Subnet: {sub.get('name')}")
                         invalidate("subnets", "networks")

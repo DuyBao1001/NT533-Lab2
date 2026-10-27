@@ -66,14 +66,19 @@ def list_pools(token):
     return _call("GET", "pools", token, key="pools")
 
 
-def create_pool(token, listener_id, name="web-pool"):
+def create_pool(token, listener_id, name="web-pool", algorithm="SOURCE_IP_PORT"):
     body = {"pool": {
         "name": name,
         "listener_id": listener_id,
         "protocol": "TCP",
-        "lb_algorithm": "SOURCE_IP_PORT",
+        "lb_algorithm": algorithm,
     }}
     return _call("POST", "pools", token, body, "pool", timeout=60)
+
+
+def update_pool_algorithm(token, pool_id, algorithm):
+    body = {"pool": {"lb_algorithm": algorithm}}
+    return _call("PUT", f"pools/{pool_id}", token, body, "pool", timeout=60)
 
 
 def list_members(token, pool_id):

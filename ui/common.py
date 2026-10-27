@@ -4,7 +4,7 @@ import streamlit as st
 
 DEFAULT_USER_DATA = """#!/bin/bash
 set -eux
-exec > /var/log/nt533-user-data.log 2>&1
+exec > >(tee /var/log/nt533-user-data.log /dev/console) 2>&1
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y nginx curl

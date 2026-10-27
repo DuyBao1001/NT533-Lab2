@@ -5,7 +5,7 @@ import streamlit as st
 from api.compute import list_instances
 from api.load_balancer import (
     list_load_balancers, create_load_balancer, get_load_balancer,
-    list_listeners, create_listener, list_pools, create_pool,
+    list_listeners, create_listener, list_pools, create_pool, update_pool_algorithm,
     list_members, add_pool_member, delete_pool_member,
     list_health_monitors, create_health_monitor,
 )
@@ -15,6 +15,27 @@ from api.network import (
 from ui.common import (
     load, invalidate, refresh_button, flash, table, choices, external_networks,
 )
+
+
+# Mục đầu tiên là mặc định. Provider OVN của cloud này chấp nhận SOURCE_IP_PORT
+# và từ chối ROUND_ROBIN; các thuật toán còn lại chưa được kiểm chứng.
+ALGORITHMS = {
+    "SOURCE_IP_PORT": "Theo IP và cổng nguồn",
+    "ROUND_ROBIN": "Luân phiên lần lượt",
+    "LEAST_CONNECTIONS": "Ít kết nối nhất",
+    "SOURCE_IP": "Theo IP nguồn",
+}
+
+
+def _algorithm_label(algorithm):
+    return f"{algorithm} - {ALGORITHMS[algorithm]}"
+
+
+def _select_algorithm(label, key, current=None):
+    """Selectbox thuật toán cân bằng tải, trả về tên thuật toán."""
+    names = list(ALGORITHMS)
+    index = names.index(current) if current in names else 0
+    return st.selectbox(label, names, index=index, format_func=_algorithm_label, key=key)
 
 
 def _ref_id(ref):
@@ -151,13 +172,15 @@ def _render_pools(token, listeners, pools):
             with st.form("lb_create_pool_form"):
                 name = st.text_input("Tên Pool", value="tcp-pool")
                 listener_label = st.selectbox("Listener gắn với Pool", list(options))
+                algorithm = _select_algorithm("Thuật toán cân bằng tải", "pool_create_algorithm")
+                st.caption("Provider OVN sẽ từ chối thuật toán mà nó không hỗ trợ (ví dụ ROUND_ROBIN).")
                 submitted = st.form_submit_button("Tạo Pool", width="stretch")
             if submitted:
                 if not name.strip():
                     st.warning("Vui lòng nhập tên Pool.")
                 else:
                     with st.spinner("Đang tạo Pool..."):
-                        pool, err = create_pool(token, options[listener_label], name.strip())
+                        pool, err = create_pool(token, options[listener_label], name.strip(), algorithm)
                     if pool:
                         flash("success", "Đã gửi yêu cầu tạo Pool.")
                         invalidate("lb_pools")
@@ -181,6 +204,25 @@ def _render_pools(token, listeners, pools):
         ])
     elif listeners:
         st.info("Load Balancer này chưa có Pool.")
+
+    if pools:
+        st.markdown("##### Đổi thuật toán cân bằng tải")
+        pool_options = choices(pools, lambda p: p.get("name") or "(Không tên)")
+        col_pool, col_algorithm = st.columns(2)
+        pool_label = col_pool.selectbox("Pool", list(pool_options), key="pool_algorithm_pool")
+        pool_id = pool_options[pool_label]
+        current = next((p.get("lb_algorithm") for p in pools if p["id"] == pool_id), None)
+        with col_algorithm:
+            algorithm = _select_algorithm("Thuật toán mới", f"pool_algorithm_{pool_id}_{current}", current)
+        if st.button("Cập nhật thuật toán", width="stretch", key="pool_update_algorithm", disabled=algorithm == current):
+            with st.spinner("Đang cập nhật Pool..."):
+                pool, err = update_pool_algorithm(token, pool_id, algorithm)
+            if pool:
+                flash("success", f"Đã gửi yêu cầu đổi thuật toán sang {algorithm}.")
+                invalidate("lb_pools")
+                st.rerun()
+            else:
+                st.error(err)
 
 
 def _vm_fixed_ips(token, server_id, subnet_names):

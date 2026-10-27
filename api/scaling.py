@@ -10,7 +10,6 @@ POLL_INTERVAL = 5
 
 
 def _wait(check, timeout):
-    """Gọi check() đến khi trả về giá trị khác None hoặc hết thời gian."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         result = check()
@@ -21,7 +20,6 @@ def _wait(check, timeout):
 
 
 def wait_lb_active(token, lb_id, timeout=180):
-    """Octavia khóa Load Balancer khi đang cập nhật, cần chờ ACTIVE trước mỗi thay đổi."""
     def check():
         lb, _ = get_load_balancer(token, lb_id)
         return True if lb and lb.get("provisioning_status") == "ACTIVE" else None
@@ -29,7 +27,6 @@ def wait_lb_active(token, lb_id, timeout=180):
 
 
 def _wait_instance_ip(token, server_id, timeout=300):
-    """Chờ máy ảo ACTIVE và có Fixed IP. Trả về (ip, subnet_id) hoặc (None, lỗi)."""
     def check():
         server, _ = get_instance(token, server_id)
         if not server:
@@ -53,7 +50,6 @@ def _wait_instance_ip(token, server_id, timeout=300):
 
 
 def next_names(prefix, existing, count):
-    """Sinh `count` tên prefix-N chưa bị trùng với các máy ảo hiện có."""
     names, i = [], 1
     while len(names) < count:
         if f"{prefix}-{i}" not in existing:
@@ -63,7 +59,6 @@ def next_names(prefix, existing, count):
 
 
 def scale_out(token, lb_id, pool_id, names, spec, port, log):
-    """Tạo máy ảo mới rồi thêm vào Pool. Trả về danh sách lỗi."""
     errors = []
 
     # Tạo tất cả máy ảo trước để chúng khởi động song song
@@ -95,7 +90,6 @@ def scale_out(token, lb_id, pool_id, names, spec, port, log):
 
 
 def scale_in(token, lb_id, pool_id, members, vm_by_address, delete_vms, log):
-    """Gỡ member khỏi Pool và (tùy chọn) xóa máy ảo tương ứng. Trả về danh sách lỗi."""
     errors = []
     for member in members:
         address = member.get("address")
