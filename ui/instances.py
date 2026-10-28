@@ -8,10 +8,10 @@ from api.compute import (
 )
 from api.image import get_images
 from api.network import (
-    get_networks, get_instance_ports, list_floating_ips, create_floating_ip,
+    get_networks, get_instance_ports, list_floating_ips, create_floating_ip, delete_floating_ip,
 )
 from ui.common import (
-    DEFAULT_USER_DATA, load, invalidate, refresh_button, flash, table,
+    DEFAULT_USER_DATA, load, invalidate, refresh_button, flash, table, delete_box,
     short_id, choices, external_networks, server_ips,
 )
 
@@ -163,6 +163,11 @@ def render_floating_ip(token):
             }
             for f in fips
         ])
+        delete_box(
+            "Floating IP", "fip", fips,
+            lambda f: f"{f.get('floating_ip_address')} ({f.get('status')})",
+            delete_floating_ip, token, "floating_ips",
+        )
 
     if not instances:
         st.info("Cần có Instance trước khi gắn Floating IP.")

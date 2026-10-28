@@ -4,27 +4,36 @@ import streamlit as st
 
 from api.compute import list_instances
 from api.load_balancer import (
-    list_load_balancers, create_load_balancer, get_load_balancer,
+    list_load_balancers, create_load_balancer, get_load_balancer, list_providers,
     list_listeners, create_listener, list_pools, create_pool, update_pool_algorithm,
     list_members, add_pool_member, delete_pool_member,
     list_health_monitors, create_health_monitor,
+    delete_load_balancer, delete_listener, delete_pool, delete_health_monitor,
 )
 from api.network import (
     get_networks, get_subnets, get_instance_ports, list_floating_ips, create_floating_ip,
+    delete_floating_ip,
 )
 from ui.common import (
-    load, invalidate, refresh_button, flash, table, choices, external_networks,
+    load, invalidate, refresh_button, flash, table, choices, external_networks, delete_box,
 )
 
 
-# Mục đầu tiên là mặc định. Provider OVN của cloud này chấp nhận SOURCE_IP_PORT
-# và từ chối ROUND_ROBIN; các thuật toán còn lại chưa được kiểm chứng.
+# Mục đầu tiên là mặc định. Provider OVN chỉ hỗ trợ SOURCE_IP_PORT (HTTP 501 với
+# các thuật toán dưới đây), nên Load Balancer được tạo với provider hỗ trợ đủ cả ba.
 ALGORITHMS = {
-    "SOURCE_IP_PORT": "Theo IP và cổng nguồn",
     "ROUND_ROBIN": "Luân phiên lần lượt",
     "LEAST_CONNECTIONS": "Ít kết nối nhất",
     "SOURCE_IP": "Theo IP nguồn",
 }
+# Provider hỗ trợ đủ ROUND_ROBIN, LEAST_CONNECTIONS, SOURCE_IP, theo thứ tự ưu tiên.
+PREFERRED_PROVIDERS = ("amphora", "octavia")
+
+
+def pick_provider(providers):
+    """Chọn provider hỗ trợ đủ ba thuật toán; None để Octavia dùng provider mặc định."""
+    names = [p.get("name") for p in providers or []]
+    return next((n for n in PREFERRED_PROVIDERS if n in names), None)
 
 
 def _algorithm_label(algorithm):
@@ -85,7 +94,7 @@ def _render_lb_select(token):
                     st.warning("Vui lòng nhập tên Load Balancer.")
                 else:
                     with st.spinner("Đang tạo Load Balancer..."):
-                        lb, err = create_load_balancer(token, name.strip(), options[subnet_label])
+                        lb, err = create_load_balancer(token, name.strip(), options[subnet_label], pick_provider(load("lb_providers", list_providers, token)))
                     if lb:
                         flash("success", "Đã gửi yêu cầu tạo Load Balancer.")
                         st.session_state["lb_selected_id"] = lb.get("id")
@@ -105,6 +114,7 @@ def _render_lb_select(token):
         {
             "ID": lb.get("id"),
             "Tên": lb.get("name") or "(Không tên)",
+            "Provider": lb.get("provider", "N/A"),
             "Provisioning": lb.get("provisioning_status", "N/A"),
             "Operating": lb.get("operating_status", "N/A"),
             "VIP Address": lb.get("vip_address", "N/A"),
@@ -158,6 +168,11 @@ def _render_listeners(token, lb_id):
             }
             for l in listeners
         ])
+        delete_box(
+            "Listener", "listener", listeners,
+            lambda l: f"{l.get('name') or '(Không tên)'} | {l.get('protocol')}:{l.get('protocol_port')}",
+            delete_listener, token, "lb_listeners", "lb_pools",
+        )
     else:
         st.info("Load Balancer này chưa có Listener.")
     return listeners, pools
@@ -173,7 +188,7 @@ def _render_pools(token, listeners, pools):
                 name = st.text_input("Tên Pool", value="tcp-pool")
                 listener_label = st.selectbox("Listener gắn với Pool", list(options))
                 algorithm = _select_algorithm("Thuật toán cân bằng tải", "pool_create_algorithm")
-                st.caption("Provider OVN sẽ từ chối thuật toán mà nó không hỗ trợ (ví dụ ROUND_ROBIN).")
+                st.caption("Load Balancer tạo bằng provider OVN (cũ) không hỗ trợ các thuật toán này; hãy tạo Load Balancer mới.")
                 submitted = st.form_submit_button("Tạo Pool", width="stretch")
             if submitted:
                 if not name.strip():
@@ -202,6 +217,10 @@ def _render_pools(token, listeners, pools):
             }
             for p in pools
         ])
+        delete_box(
+            "Pool", "pool", pools, lambda p: p.get("name") or "(Không tên)",
+            delete_pool, token, "lb_pools", "lb_monitors",
+        )
     elif listeners:
         st.info("Load Balancer này chưa có Pool.")
 
@@ -338,6 +357,11 @@ def _render_health_monitors(token, pools):
             }
             for hm in monitors
         ])
+        delete_box(
+            "Health Monitor", "hm", monitors,
+            lambda hm: f"{hm.get('name') or '(Không tên)'} | {hm.get('type')}",
+            delete_health_monitor, token, "lb_monitors",
+        )
     else:
         st.info("Các Pool của Load Balancer này chưa có Health Monitor.")
 
@@ -360,6 +384,11 @@ def _render_vip_floating_ip(token, lb_id):
         address = attached[0].get("floating_ip_address")
         st.success(f"VIP đã có Floating IP: {address}")
         st.code(f"http://{address}")
+        delete_box(
+            "Floating IP của VIP", "vip_fip", attached,
+            lambda f: f.get("floating_ip_address") or f.get("id"),
+            delete_floating_ip, token, "floating_ips",
+        )
         return
 
     externals = external_networks(load("networks", get_networks, token))
@@ -404,3 +433,11 @@ def render_load_balancer(token):
     _render_health_monitors(token, pools)
     st.divider()
     _render_vip_floating_ip(token, lb_id)
+    st.divider()
+    st.markdown("#### 6.7. Xóa Load Balancer")
+    st.caption("Xóa kèm toàn bộ Listener, Pool, Backend và Health Monitor của Load Balancer.")
+    delete_box(
+        "Load Balancer", "lb", load("lb_items", list_load_balancers, token),
+        lambda lb: f"{lb.get('name') or '(Không tên)'} | {lb.get('vip_address', 'N/A')}",
+        delete_load_balancer, token, "lb_items", "lb_listeners", "lb_pools", "lb_monitors",
+    )

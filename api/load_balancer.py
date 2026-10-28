@@ -35,13 +35,26 @@ def get_load_balancer(token, lb_id):
     return _call("GET", f"loadbalancers/{lb_id}", token, key="loadbalancer")
 
 
-def create_load_balancer(token, name, subnet_id):
-    body = {"loadbalancer": {
+def list_providers(token):
+    """Provider khả dụng (GET /v2/lbaas/providers), ví dụ amphora, ovn."""
+    return _call("GET", "providers", token, key="providers")
+
+
+def create_load_balancer(token, name, subnet_id, provider=None):
+    lb = {
         "name": name,
         "vip_subnet_id": subnet_id,
         "description": "NT533 Web Load Balancing",
-    }}
+    }
+    if provider:
+        lb["provider"] = provider
+    body = {"loadbalancer": lb}
     return _call("POST", "loadbalancers", token, body, "loadbalancer", timeout=60)
+
+
+def delete_load_balancer(token, lb_id):
+    """Xóa Load Balancer cùng toàn bộ Listener, Pool, Member, Health Monitor (cascade)."""
+    return _call("DELETE", f"loadbalancers/{lb_id}?cascade=true", token, timeout=120)
 
 
 # ==================== LISTENER ====================
@@ -60,13 +73,17 @@ def create_listener(token, lb_id, name="http-listener"):
     return _call("POST", "listeners", token, body, "listener", timeout=60)
 
 
+def delete_listener(token, listener_id):
+    return _call("DELETE", f"listeners/{listener_id}", token, timeout=60)
+
+
 # ==================== POOL & MEMBER ====================
 
 def list_pools(token):
     return _call("GET", "pools", token, key="pools")
 
 
-def create_pool(token, listener_id, name="web-pool", algorithm="SOURCE_IP_PORT"):
+def create_pool(token, listener_id, name="web-pool", algorithm="ROUND_ROBIN"):
     body = {"pool": {
         "name": name,
         "listener_id": listener_id,
@@ -79,6 +96,10 @@ def create_pool(token, listener_id, name="web-pool", algorithm="SOURCE_IP_PORT")
 def update_pool_algorithm(token, pool_id, algorithm):
     body = {"pool": {"lb_algorithm": algorithm}}
     return _call("PUT", f"pools/{pool_id}", token, body, "pool", timeout=60)
+
+
+def delete_pool(token, pool_id):
+    return _call("DELETE", f"pools/{pool_id}", token, timeout=60)
 
 
 def list_members(token, pool_id):
@@ -115,3 +136,7 @@ def create_health_monitor(token, pool_id):
         "max_retries": 3,
     }}
     return _call("POST", "healthmonitors", token, body, "healthmonitor", timeout=60)
+
+
+def delete_health_monitor(token, monitor_id):
+    return _call("DELETE", f"healthmonitors/{monitor_id}", token, timeout=60)

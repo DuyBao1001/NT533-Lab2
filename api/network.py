@@ -214,6 +214,18 @@ def list_floating_ips(token):
     except requests.RequestException as e:
         return None, str(e)
 
+def delete_floating_ip(token, floating_ip_id):
+    """Gỡ và giải phóng Floating IP theo ID"""
+    url = f"{NETWORK_URL.rstrip('/')}/floatingips/{floating_ip_id}"
+    try:
+        response = logged_request("DELETE", url, headers=_get_headers(token), timeout=10)
+        if response.status_code in (200, 204):
+            return True, None
+        return False, f"Lỗi xóa Floating IP: HTTP {response.status_code} - {response.text}"
+    except requests.RequestException as e:
+        return False, f"Lỗi kết nối Network API: {e}"
+
+
 def create_floating_ip(token, external_network_id, port_id):
     """Cấp Floating IP và gắn trực tiếp vào port của VM."""
     url = f"{NETWORK_URL.rstrip('/')}/floatingips"
